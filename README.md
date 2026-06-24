@@ -1,5 +1,7 @@
 # RepairSafe — Home Repair Safety Assistant
 
+![screenshot](Screenshot.png)
+
 **AI201 Lab 4 Starter Repository**
 
 RepairSafe is a home repair Q&A tool with a safety classification layer. Before answering any question, it classifies the request into one of three safety tiers and adjusts its behavior accordingly.
