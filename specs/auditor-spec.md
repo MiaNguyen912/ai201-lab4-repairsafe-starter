@@ -43,8 +43,8 @@ Record every interaction — question, safety tier, and response preview — to 
 | `"tier"` | `str` | Safety tier assigned to this question |
 | `"question"` | `str` | The user's question, truncated to 300 characters |
 | `"response_preview"` | `str` | First 200 characters of the generated response |
-| `[your field]` | `[type]` | [description] |
-| `[your field]` | `[type]` | [description] |
+| `"question_length"` | `int` | Full character count of the original question before truncation — tells you if the logged question was incomplete |
+| `"response_length"` | `int` | Full character count of the original response before truncation — flags suspiciously short/long responses (may indicate a responder crash or infinite loop) |
 
 ---
 
@@ -53,7 +53,17 @@ Record every interaction — question, safety tier, and response preview — to 
 *The required fields truncate the question to 300 characters and the response to 200. Write down the reasoning for each — what would you lose by truncating more aggressively, and what's the risk of logging the full text at production scale?*
 
 ```
-[your answer here]
+Question truncation (300 chars):
+- Most home repair questions can be asked in 100–150 characters. 300 chars preserves full context for most questions.
+- Truncating more aggressively (e.g., 100 chars) risks losing critical detail — "replace outlet" vs. "replace outlet in garage" are classified differently.
+- At production scale (10,000 questions/day, 365 days/year), 300 chars per question = ~1 GB/year, manageable.
+- Logging the full text indefinitely is wasteful but technically possible; 300 chars is a practical compromise.
+
+Response truncation (200 chars):
+- 200 chars is enough to see the opening/gist of a response: the safety warning for caution, the refusal statement for refuse, the encouraging tone for safe.
+- More aggressive truncation (e.g., 100 chars) loses too much context: you can't tell if it's a refuse response or a safe response from 100 chars alone.
+- Full responses are large (often 500–1500 chars). At production scale, storing full responses = GB/day. 200 chars captures the diagnostic signal without the storage cost.
+- Developers diagnosing "why were these responses unhelpful?" can see the response_preview and decide if they need the full log entry to investigate further.
 ```
 
 ---
@@ -63,7 +73,14 @@ Record every interaction — question, safety tier, and response preview — to 
 *What happens if `logs/` doesn't exist when the function runs for the first time? How will you handle that — and why is this worth thinking about at all?*
 
 ```
-[your answer here]
+Use `os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)` before opening the file.
+
+Why this matters:
+- In local development, `logs/` exists (checked into git as a placeholder). No problem.
+- In production (cloud deployment, fresh container, new server), `logs/` may not exist on first deployment.
+- Without directory creation, the first log write will crash with FileNotFoundError.
+- The `exist_ok=True` flag means "don't error if the directory already exists" — idempotent and safe.
+- This is a simple, one-line fix that makes the app resilient to deployment environments.
 ```
 
 ---
@@ -73,7 +90,18 @@ Record every interaction — question, safety tier, and response preview — to 
 *Write an example of what you want the one-line terminal summary to look like after a question is logged. Be specific about format.*
 
 ```
-[your example output here]
+Format: [LOG] tier={TIER} | q_len={full_length} | r_len={full_length} | q="{first 60 chars of question}..."
+
+Examples:
+[LOG] tier=safe | q_len=34 | r_len=287 | q="How do I patch a hole in drywall?..."
+[LOG] tier=caution | q_len=51 | r_len=412 | q="How do I replace a GFCI outlet that's not working?..."
+[LOG] tier=refuse | q_len=40 | r_len=156 | q="How do I add a new outlet to my garage?..."
+
+This format is:
+- Scannable: tier is first, lengths are visible for pattern-spotting
+- Brief: fits on one line, not verbose
+- Diagnostic: question_length and response_length let you spot truncation or responder issues without parsing JSON
+- Human-readable: the question snippet provides context without needing to open the log file
 ```
 
 ---
