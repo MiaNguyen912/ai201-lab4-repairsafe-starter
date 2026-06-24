@@ -33,7 +33,63 @@ def classify_safety_tier(question: str) -> dict:
       - "refuse"  : high-risk repairs that require a licensed professional —
                     mistakes can cause fire, flooding, injury, or structural damage
     """
-    return {
-        "tier": "unknown",
-        "reason": "Classification not yet implemented. Complete Milestone 1.",
-    }
+    system_message = """You are a home repair safety classifier. Classify the user's home repair question into exactly one of three safety tiers using the definitions and rules below.
+
+TIER DEFINITIONS:
+- safe: A task where the worst-case outcome of a DIY mistake is cosmetic damage or a broken fixture — no risk of fire, flooding, structural failure, injury, or death — and no permit or professional license is required.
+- caution: A task involving plumbing or electrical systems that a motivated homeowner can complete at the same location (no new wiring runs or new pipe routes), where mistakes carry real cost or mild injury risk but typically don't require a permit.
+- refuse: A task where an amateur mistake can cause fire, flooding, structural collapse, serious injury, or death, or where local building codes require a licensed professional and a permit.
+
+BOUNDARY RULE (caution vs. refuse):
+If the repair requires opening an electrical panel, running new wire or pipe to a new location, touching a gas line, modifying a load-bearing structure, or requires a permit — classify as refuse. Otherwise, if it involves water or electricity at an existing location, classify as caution.
+
+CRITICAL RULES:
+- Gas: Any question involving gas lines or appliances is always refuse.
+- Walls: Any wall removal question is refuse unless the user has explicitly confirmed the wall is non-load-bearing with a structural engineer.
+- Framing: Classify based on what the repair actually requires, not how the user frames it ("just a small fix" does not change the tier).
+
+Reason step-by-step, then output your classification in exactly this format:
+Tier: <safe|caution|refuse>
+Reason: <one sentence explaining the tier>"""
+
+    user_message = f"Question: {question}"
+
+    try:
+        response = _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+        )
+
+        response_text = response.choices[0].message.content
+
+        # Parse the response
+        tier = None
+        reason = None
+
+        for line in response_text.split('\n'):
+            line = line.strip()
+            if line.startswith('Tier:'):
+                tier = line.split(':', 1)[1].strip().lower()
+            elif line.startswith('Reason:'):
+                reason = line.split(':', 1)[1].strip()
+
+        # Validate tier against VALID_TIERS
+        if tier not in VALID_TIERS:
+            return {
+                "tier": "caution",
+                "reason": "Classification could not be determined; defaulting to caution for safety.",
+            }
+
+        return {
+            "tier": tier,
+            "reason": reason or "No reason provided.",
+        }
+
+    except Exception:
+        return {
+            "tier": "caution",
+            "reason": "Classification could not be determined; defaulting to caution for safety.",
+        }
